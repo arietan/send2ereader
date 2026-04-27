@@ -34,7 +34,7 @@ If conversion ever lands here, it'll happen client-side in WebAssembly.
 - Files are uploaded directly from the browser to Vercel Blob using `@vercel/blob/client`, so the 4.5MB serverless body limit doesn't apply. Limit is 200MB by default — set in `src/lib/file-types.ts`.
 - Codes use a 28-character alphabet (`23456789ACDEFGHJKLMNPRSTUVWXYZ`) that excludes ambiguous shapes like `0/O` and `1/I`, matching the original.
 - Metadata for each upload is itself a small JSON blob (`meta/<CODE>.json`), so we don't need a separate database. `POST /api/finalize` retries until it finds a code with no existing meta blob.
-- A Vercel Cron at `/api/cleanup` removes any meta + file pair older than one hour.
+- A Vercel Cron at `/api/cleanup` sweeps every meta + file pair older than one hour. On Hobby plans cron only runs once per day, so the absolute upper bound on storage is around 25 hours; on Pro you can set the schedule to hourly (or finer) by editing `vercel.json`.
 
 ## Local development
 
@@ -75,7 +75,7 @@ npm run lint     # eslint
 2. In Vercel, **Add New → Project**, pick the repo, accept defaults (Next.js framework auto-detected, no build command override needed).
 3. Under **Storage**, create or attach a Blob store. Vercel will inject `BLOB_READ_WRITE_TOKEN` automatically.
 4. (Optional, recommended) Under **Settings → Environment Variables**, add `CRON_SECRET` with a long random value.
-5. Deploy. The `vercel.json` ships a cron that pings `/api/cleanup` every hour.
+5. Deploy. The `vercel.json` ships a cron that pings `/api/cleanup` once a day (Hobby plans are capped at daily). On Pro, change the schedule to `0 * * * *` for hourly cleanup.
 
 That's it — your fork is live at `https://<your-project>.vercel.app`.
 
@@ -88,7 +88,7 @@ That's it — your fork is live at `https://<your-project>.vercel.app`.
 | `GET`  | `/api/status`       | Polled by the sender to see if the ereader has claimed the file.    |
 | `POST` | `/api/claim`        | Receiver enters the code; gets back a download URL.                  |
 | `POST` | `/api/release`      | Sender abandons the upload; deletes file + meta.                     |
-| `GET`  | `/api/cleanup`      | Cron-only sweep of expired uploads (TTL = 1 hour).                   |
+| `GET`  | `/api/cleanup`      | Cron sweep of expired uploads (TTL = 1 hour, runs daily on Hobby).   |
 
 ## Project layout
 
@@ -117,7 +117,7 @@ All in `src/lib/file-types.ts` and `src/app/api/cleanup/route.ts`:
 
 - `MAX_FILE_SIZE` — default 200 MB.
 - `ALLOWED_EXTENSIONS` — EPUB, KEPUB, MOBI, AZW, AZW3, PDF, CBZ, CBR, TXT, HTML.
-- `TTL_MS` — default 1 hour. The cron in `vercel.json` runs hourly.
+- `TTL_MS` — default 1 hour. The cron in `vercel.json` runs daily on Hobby; bump the schedule to hourly on Pro.
 
 ## License
 
