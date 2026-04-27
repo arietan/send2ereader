@@ -2,6 +2,8 @@
 
 A Vercel-native rewrite of the classic [`daniel-j/send2ereader`](https://github.com/daniel-j/send2ereader). Drop a book on your phone or laptop, type a four-character code on your Kobo or Kindle's built-in browser, and the file lands in its library. No account, no app, no cable.
 
+**Live:** [b2k.vercel.app](https://b2k.vercel.app) (short alias for typing on an ereader) · also reachable at [send2ereader-nine.vercel.app](https://send2ereader-nine.vercel.app).
+
 The original Koa server has been replaced with **Next.js 16 on App Router** and **Vercel Blob** for storage, so the whole thing runs as a handful of serverless functions plus a static UI.
 
 ## What's different from the upstream
