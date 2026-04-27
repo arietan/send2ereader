@@ -13,6 +13,9 @@ export default async function ReceivePage({
   const initialCode = normalizeCode(
     Array.isArray(cParam) ? cParam[0] ?? "" : cParam ?? ""
   );
+  const errorParam = params.error;
+  const initialError =
+    (Array.isArray(errorParam) ? errorParam[0] : errorParam) || undefined;
 
   return (
     <div className="max-w-md mx-auto px-5 sm:px-8 pt-12 sm:pt-20 pb-16">
@@ -29,7 +32,7 @@ export default async function ReceivePage({
         </p>
       </section>
 
-      <ReceiveForm initialCode={initialCode} />
+      <ReceiveForm initialCode={initialCode} initialError={initialError} />
     </div>
   );
 }

@@ -18,19 +18,24 @@ type State =
   | { phase: "error"; message: string };
 
 const KEY_LENGTH = 4;
+const EXCLUDED_HINT =
+  "Codes never include 0, 1, B, I, O, or Q (they look too much like other characters).";
 
 type Props = {
   initialCode?: string;
+  initialError?: string;
 };
 
-export function ReceiveForm({ initialCode = "" }: Props) {
+export function ReceiveForm({ initialCode = "", initialError }: Props) {
   const [chars, setChars] = useState<string[]>(() => {
     const initial = normalizeCode(initialCode).slice(0, KEY_LENGTH);
     const arr = Array(KEY_LENGTH).fill("");
     for (let i = 0; i < initial.length; i++) arr[i] = initial[i];
     return arr;
   });
-  const [state, setState] = useState<State>({ phase: "idle" });
+  const [state, setState] = useState<State>(() =>
+    initialError ? { phase: "error", message: initialError } : { phase: "idle" }
+  );
   const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
   const submittedAuto = useRef(false);
 
@@ -45,22 +50,30 @@ export function ReceiveForm({ initialCode = "" }: Props) {
   }, []);
 
   useEffect(() => {
+    // Only auto-submit when the page was opened with a valid ?c= and there is
+    // no inbound error; we never want to retry an error case automatically.
     if (
       !submittedAuto.current &&
       isValidCode(code) &&
       initialCode &&
+      !initialError &&
       state.phase === "idle"
     ) {
       submittedAuto.current = true;
       void submit();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [code, state.phase, initialCode]);
+  }, [code, state.phase, initialCode, initialError]);
+
+  function clearErrorIfNeeded() {
+    setState((prev) => (prev.phase === "error" ? { phase: "idle" } : prev));
+  }
 
   function setCharAt(idx: number, value: string) {
     const next = [...chars];
     next[idx] = value;
     setChars(next);
+    clearErrorIfNeeded();
   }
 
   function handleChange(idx: number, raw: string) {
@@ -85,6 +98,7 @@ export function ReceiveForm({ initialCode = "" }: Props) {
       cursor++;
     }
     setChars(next);
+    clearErrorIfNeeded();
     const focusIdx = Math.min(cursor, KEY_LENGTH - 1);
     inputRefs.current[focusIdx]?.focus();
   }
@@ -106,7 +120,7 @@ export function ReceiveForm({ initialCode = "" }: Props) {
       inputRefs.current[idx + 1]?.focus();
       return;
     }
-    if (e.key === "Enter" && isValidCode(chars.join(""))) {
+    if (e.key === "Enter") {
       e.preventDefault();
       void submit();
     }
@@ -115,10 +129,29 @@ export function ReceiveForm({ initialCode = "" }: Props) {
   async function submit(e?: React.FormEvent) {
     e?.preventDefault();
     const finalCode = normalizeCode(chars.join(""));
-    if (!isValidCode(finalCode)) {
-      setState({ phase: "error", message: "Type the four characters from your phone or laptop." });
+
+    if (finalCode.length === 0) {
+      setState({
+        phase: "error",
+        message: "Type the four characters shown on the device that uploaded the book.",
+      });
       return;
     }
+    if (finalCode.length < KEY_LENGTH) {
+      setState({
+        phase: "error",
+        message: `Codes are ${KEY_LENGTH} characters. You typed ${finalCode.length}.`,
+      });
+      return;
+    }
+    if (!isValidCode(finalCode)) {
+      setState({
+        phase: "error",
+        message: `That code has a character we don't use. ${EXCLUDED_HINT} Double-check the device that uploaded the book.`,
+      });
+      return;
+    }
+
     setState({ phase: "fetching" });
     try {
       const res = await fetch("/api/claim", {
@@ -194,7 +227,12 @@ export function ReceiveForm({ initialCode = "" }: Props) {
   }
 
   return (
-    <form onSubmit={submit} className="space-y-5">
+    <form
+      action="/r/get"
+      method="POST"
+      onSubmit={submit}
+      className="space-y-5"
+    >
       <div>
         <p className="text-xs uppercase tracking-[0.18em] text-ink-muted mb-3 text-center">
           Enter the four-character code
@@ -222,6 +260,13 @@ export function ReceiveForm({ initialCode = "" }: Props) {
             />
           ))}
         </div>
+        {/*
+          Hidden field that mirrors the four cells so the no-JS form fallback
+          (POST /r/get) can read a single `code` field. Required because some
+          ereader browsers (older Kobo WebKit) handle React's controlled
+          inputs and programmatic focus inconsistently.
+        */}
+        <input type="hidden" name="code" value={code} />
       </div>
 
       {state.phase === "error" && (
@@ -232,7 +277,7 @@ export function ReceiveForm({ initialCode = "" }: Props) {
 
       <button
         type="submit"
-        disabled={!isValidCode(code) || state.phase === "fetching"}
+        disabled={state.phase === "fetching"}
         className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-ink text-paper px-6 py-3 text-base font-medium hover:bg-accent-deep transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {state.phase === "fetching" ? (
@@ -241,14 +286,12 @@ export function ReceiveForm({ initialCode = "" }: Props) {
             Fetching…
           </>
         ) : (
-          <>
-            Get my book
-          </>
+          <>Get my book</>
         )}
       </button>
 
       <p className="text-center text-xs text-ink-muted">
-        Codes use digits and uppercase letters only. They expire after an hour.
+        {EXCLUDED_HINT} Codes expire after an hour.
       </p>
     </form>
   );
