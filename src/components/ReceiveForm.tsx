@@ -21,31 +21,25 @@ const KEY_LENGTH = 4;
 const EXCLUDED_HINT =
   "Codes never include 0, 1, B, I, O, or Q (they look too much like other characters).";
 
+function sanitizeCode(raw: string): string {
+  return normalizeCode(raw).replace(/[^0-9A-Z]/g, "").slice(0, KEY_LENGTH);
+}
+
 type Props = {
   initialCode?: string;
   initialError?: string;
 };
 
 export function ReceiveForm({ initialCode = "", initialError }: Props) {
-  const [chars, setChars] = useState<string[]>(() => {
-    const initial = normalizeCode(initialCode).slice(0, KEY_LENGTH);
-    const arr = Array(KEY_LENGTH).fill("");
-    for (let i = 0; i < initial.length; i++) arr[i] = initial[i];
-    return arr;
-  });
+  const [code, setCode] = useState(() => sanitizeCode(initialCode));
   const [state, setState] = useState<State>(() =>
     initialError ? { phase: "error", message: initialError } : { phase: "idle" }
   );
-  const inputRefs = useRef<Array<HTMLInputElement | null>>([]);
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const submittedAuto = useRef(false);
 
-  const code = chars.join("");
-
   useEffect(() => {
-    // Focus the first empty input on mount.
-    const firstEmpty = chars.findIndex((ch) => !ch);
-    const idx = firstEmpty === -1 ? KEY_LENGTH - 1 : firstEmpty;
-    inputRefs.current[idx]?.focus();
+    inputRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -65,75 +59,25 @@ export function ReceiveForm({ initialCode = "", initialError }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [code, state.phase, initialCode, initialError]);
 
-  function clearErrorIfNeeded() {
+  function handleChange(raw: string) {
+    setCode(sanitizeCode(raw));
     setState((prev) => (prev.phase === "error" ? { phase: "idle" } : prev));
-  }
-
-  function setCharAt(idx: number, value: string) {
-    const next = [...chars];
-    next[idx] = value;
-    setChars(next);
-    clearErrorIfNeeded();
-  }
-
-  function handleChange(idx: number, raw: string) {
-    const cleaned = raw.toUpperCase().replace(/[^0-9A-Z]/g, "");
-    if (cleaned.length === 0) {
-      setCharAt(idx, "");
-      return;
-    }
-    if (cleaned.length === 1) {
-      setCharAt(idx, cleaned);
-      if (idx < KEY_LENGTH - 1) {
-        inputRefs.current[idx + 1]?.focus();
-      }
-      return;
-    }
-    // pasted multiple chars
-    const next = [...chars];
-    let cursor = idx;
-    for (const ch of cleaned) {
-      if (cursor >= KEY_LENGTH) break;
-      next[cursor] = ch;
-      cursor++;
-    }
-    setChars(next);
-    clearErrorIfNeeded();
-    const focusIdx = Math.min(cursor, KEY_LENGTH - 1);
-    inputRefs.current[focusIdx]?.focus();
-  }
-
-  function handleKeyDown(idx: number, e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Backspace" && !chars[idx] && idx > 0) {
-      e.preventDefault();
-      setCharAt(idx - 1, "");
-      inputRefs.current[idx - 1]?.focus();
-      return;
-    }
-    if (e.key === "ArrowLeft" && idx > 0) {
-      e.preventDefault();
-      inputRefs.current[idx - 1]?.focus();
-      return;
-    }
-    if (e.key === "ArrowRight" && idx < KEY_LENGTH - 1) {
-      e.preventDefault();
-      inputRefs.current[idx + 1]?.focus();
-      return;
-    }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      void submit();
-    }
   }
 
   async function submit(e?: React.FormEvent) {
     e?.preventDefault();
-    const finalCode = normalizeCode(chars.join(""));
+    // Read the freshest value from the DOM as well as React state. Some older
+    // ereader browsers (Kobo's older WebKit) don't reliably fire the input
+    // event React relies on, so the controlled state can lag behind what is
+    // actually typed in the box.
+    const liveValue = sanitizeCode(inputRef.current?.value ?? "");
+    const finalCode = liveValue || code;
 
     if (finalCode.length === 0) {
       setState({
         phase: "error",
-        message: "Type the four characters shown on the device that uploaded the book.",
+        message:
+          "Type the four characters shown on the device that uploaded the book.",
       });
       return;
     }
@@ -151,6 +95,9 @@ export function ReceiveForm({ initialCode = "", initialError }: Props) {
       });
       return;
     }
+
+    // Make sure the input/state reflect what we're actually submitting.
+    if (finalCode !== code) setCode(finalCode);
 
     setState({ phase: "fetching" });
     try {
@@ -182,10 +129,11 @@ export function ReceiveForm({ initialCode = "", initialError }: Props) {
   }
 
   function reset() {
-    setChars(Array(KEY_LENGTH).fill(""));
+    setCode("");
     setState({ phase: "idle" });
     submittedAuto.current = false;
-    inputRefs.current[0]?.focus();
+    if (inputRef.current) inputRef.current.value = "";
+    inputRef.current?.focus();
   }
 
   if (state.phase === "ready") {
@@ -234,39 +182,38 @@ export function ReceiveForm({ initialCode = "", initialError }: Props) {
       className="space-y-5"
     >
       <div>
-        <p className="text-xs uppercase tracking-[0.18em] text-ink-muted mb-3 text-center">
+        <label
+          htmlFor="receive-code"
+          className="block text-xs uppercase tracking-[0.18em] text-ink-muted mb-3 text-center"
+        >
           Enter the four-character code
-        </p>
-        <div className="flex justify-center gap-2 sm:gap-3">
-          {chars.map((ch, i) => (
-            <input
-              key={i}
-              ref={(el) => {
-                inputRefs.current[i] = el;
-              }}
-              type="text"
-              inputMode="text"
-              autoCapitalize="characters"
-              autoComplete="off"
-              autoCorrect="off"
-              spellCheck={false}
-              maxLength={KEY_LENGTH}
-              value={ch}
-              onChange={(e) => handleChange(i, e.target.value)}
-              onKeyDown={(e) => handleKeyDown(i, e)}
-              onFocus={(e) => e.currentTarget.select()}
-              className="code-tile w-16 h-20 sm:w-20 sm:h-24 text-center font-display text-4xl sm:text-5xl text-ink rounded-lg outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft transition-shadow"
-              aria-label={`Code character ${i + 1}`}
-            />
-          ))}
-        </div>
+        </label>
         {/*
-          Hidden field that mirrors the four cells so the no-JS form fallback
-          (POST /r/get) can read a single `code` field. Required because some
-          ereader browsers (older Kobo WebKit) handle React's controlled
-          inputs and programmatic focus inconsistently.
+          One uncontrolled-friendly input. We wire `value` so it stays in sync
+          when React hydrates, but we always read the DOM value at submit time
+          so we still work on browsers that don't fire React's synthetic input
+          events (older Kobo WebKit). `name="code"` means a plain HTML POST to
+          /r/get carries whatever the user actually typed, regardless of
+          whether JS hydrated.
         */}
-        <input type="hidden" name="code" value={code} />
+        <input
+          id="receive-code"
+          ref={inputRef}
+          type="text"
+          name="code"
+          inputMode="text"
+          autoCapitalize="characters"
+          autoComplete="off"
+          autoCorrect="off"
+          spellCheck={false}
+          maxLength={KEY_LENGTH}
+          defaultValue={code}
+          onChange={(e) => handleChange(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          style={{ textTransform: "uppercase", letterSpacing: "0.35em" }}
+          className="code-tile block w-full max-w-[18rem] mx-auto h-20 sm:h-24 text-center font-display text-5xl sm:text-6xl text-ink rounded-lg outline-none focus:border-accent focus:ring-2 focus:ring-accent-soft transition-shadow"
+          aria-label="Four-character code"
+        />
       </div>
 
       {state.phase === "error" && (
